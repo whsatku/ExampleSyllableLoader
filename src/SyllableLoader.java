@@ -1,4 +1,5 @@
 import java.io.*;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -7,14 +8,21 @@ public class SyllableLoader {
     private final int RECORD_TEXT_SIZE = 1023;
     private final String CHARSET = "MS874";
 
-    private DataInput reader;
+    private enum TimeFormat {
+        TBD,
+        BIT_32,
+        BIT_64,
+    };
+
+    private RandomAccessFile reader;
     private boolean headerRead = false;
+    private TimeFormat timeFormat = TimeFormat.TBD;
 
     private SyllableLoader() {
     }
 
     public SyllableLoader(File input) throws FileNotFoundException {
-        reader = new LittleEndianDataInputStream(new BufferedInputStream(new FileInputStream(input)));
+        reader = new RandomAccessFile(input, "r");
     }
 
     public void readHeader() throws IOException {
@@ -28,26 +36,14 @@ public class SyllableLoader {
         }
 
         long id = readUnsignedInt();
-        int lang = reader.readUnsignedShort();
-        int length = reader.readUnsignedShort();
-        boolean hasTailSpace = readBoolean();
-        boolean isUnused = reader.readBoolean();
-        boolean isNumeric = reader.readBoolean();
-        long mapFilePos = readUnsignedInt();
-        long timestamp = reader.readLong();
         reader.skipBytes(1);
+        boolean hasTailSpace = (reader.readUnsignedByte() & 1<<3) >> 3 == 1;
+        // metadata is 4 bytes, read above 2, skip 2 then skip mapfilepos (4 bytes)
+        reader.skipBytes(2 + 4);
 
         String text = readText(hasTailSpace);
 
-        return new SyllableRecord(
-                id, lang, length,
-                hasTailSpace, isUnused, isNumeric,
-                mapFilePos, timestamp, text
-        );
-    }
-
-    private boolean readBoolean() throws IOException {
-        return (reader.readByte() & 0x1) == 1;
+        return new SyllableRecord(id, text);
     }
 
     private long readUnsignedInt() throws IOException {
@@ -68,6 +64,20 @@ public class SyllableLoader {
     }
 
     private String readText(boolean hasTailSpace) throws IOException {
+        // attempt 32/64 bit detection by finding padding
+        // 64 bit will have 8 bytes time_t + 4 bytes padding [0,0,0,0]
+        // 32 bit will have 4 bytes time_t without padding
+        switch(timeFormat){
+            case BIT_64:
+                reader.skipBytes(8+4);
+                break;
+            case BIT_32:
+                reader.skipBytes(4);
+                break;
+            case TBD: default:
+                doBitDetect();
+        }
+
         if (hasTailSpace) {
             byte[] buffer = new byte[RECORD_TEXT_SIZE];
             reader.readFully(buffer);
@@ -90,6 +100,20 @@ public class SyllableLoader {
             }
 
             return new String(rawBuffer, CHARSET);
+        }
+    }
+
+    private void doBitDetect() throws IOException {
+        // detect for trailing padding
+        byte[] buffer = new byte[8+4];
+        reader.readFully(buffer);
+        boolean hasPadding = Arrays.equals(Arrays.copyOfRange(buffer, 8, 12), new byte[]{0, 0, 0, 0});
+        if(hasPadding){
+            timeFormat = TimeFormat.BIT_64;
+        }else{
+            timeFormat = TimeFormat.BIT_32;
+            // we overread data, feed back the last 4 bytes
+            reader.seek(reader.getFilePointer() - 4);
         }
     }
 
