@@ -1,26 +1,33 @@
 import struct
-from datetime import datetime
-from collections import namedtuple
-
-format = struct.Struct('<IHHcccxIq')
-Record = namedtuple('Record', 'id lang length tailSpace isUnused isNumeric mapFilePos timestamp text')
+from io import SEEK_CUR
 
 def loader(fp):
 	fp.seek(256)
 
+	is64 = None
+
 	while fp.readable():
-		header = fp.read(format.size)
 		try:
-			record = list(format.unpack(header))
+			id = struct.unpack('<I', fp.read(4))[0]
 		except struct.error:
-			raise StopIteration
+			return
+		fp.seek(1, SEEK_CUR)
+		hasTailSpace = (fp.read(1)[0] & 1<<3) >> 3 == 1
+		fp.seek(2+4, SEEK_CUR)
 
-		record[3] = bool(record[3][0] & 0x1)
-		record[4] = bool(record[4][0] & 0x1)
-		record[5] = bool(record[5][0] & 0x1)
-		record[7] = datetime.utcfromtimestamp(record[7])
+		if is64 == None:
+			fp.seek(8, SEEK_CUR)
+			if fp.read(4) == b'\0\0\0\0':
+				is64 = True
+			else:
+				is64 = False
+				fp.seek(-4, SEEK_CUR)
+		elif is64 == True:
+			fp.seek(8+4, SEEK_CUR)
+		elif is64 == False:
+			fp.seek(4, SEEK_CUR)
 
-		if record[3]:
+		if hasTailSpace:
 			data = fp.read(1023).decode('tis620')
 		else:
 			buffer = bytearray()
@@ -31,9 +38,7 @@ def loader(fp):
 				buffer.append(i)
 			data = buffer.decode('tis620')
 
-		record.append(data)
-
-		yield Record._make(record)
+		yield [id, data]
 
 if __name__ == '__main__':
 	import sys
@@ -42,6 +47,6 @@ if __name__ == '__main__':
 
 	i = 0
 	for item in loader(open(filename, 'rb')):
-		assert item.id == i + 1, 'id {} is not sequential'.format(item.id)
+		assert item[0] == i + 1, 'id {} is not sequential'.format(item[0])
 		print(item)
 		i += 1
