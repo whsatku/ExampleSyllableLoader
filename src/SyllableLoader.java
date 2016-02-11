@@ -36,12 +36,9 @@ public class SyllableLoader {
         }
 
         long id = readUnsignedInt();
-        reader.skipBytes(1);
-        boolean hasTailSpace = (reader.readUnsignedByte() & 1<<3) >> 3 == 1;
-        // metadata is 4 bytes, read above 2, skip 2 then skip mapfilepos (4 bytes)
-        reader.skipBytes(2 + 4);
+        reader.skipBytes(4 + 4);
 
-        String text = readText(hasTailSpace);
+        String text = readText();
 
         return new SyllableRecord(id, text);
     }
@@ -63,7 +60,7 @@ public class SyllableLoader {
                 & 0xFFFFFFFFL;
     }
 
-    private String readText(boolean hasTailSpace) throws IOException {
+    private String readText() throws IOException {
         // attempt 32/64 bit detection by finding padding
         // 64 bit will have 8 bytes time_t + 4 bytes padding [0,0,0,0]
         // 32 bit will have 4 bytes time_t without padding
@@ -78,29 +75,22 @@ public class SyllableLoader {
                 doBitDetect();
         }
 
-        if (hasTailSpace) {
-            byte[] buffer = new byte[RECORD_TEXT_SIZE];
-            reader.readFully(buffer);
+        List<Byte> buffer = new LinkedList<>();
+        byte item;
 
-            return new String(buffer, CHARSET);
-        } else {
-            List<Byte> buffer = new LinkedList<>();
-            byte item;
-
-            while ((item = reader.readByte()) != 0) {
-                buffer.add(item);
-            }
-
-            byte[] rawBuffer = new byte[buffer.size()];
-
-            // data is boxed, need manual unboxing
-            int i = 0;
-            for (Byte node : buffer) {
-                rawBuffer[i++] = node;
-            }
-
-            return new String(rawBuffer, CHARSET);
+        while ((item = reader.readByte()) != 0) {
+            buffer.add(item);
         }
+
+        byte[] rawBuffer = new byte[buffer.size()];
+
+        // data is boxed, need manual unboxing
+        int i = 0;
+        for (Byte node : buffer) {
+            rawBuffer[i++] = node;
+        }
+
+        return new String(rawBuffer, CHARSET);
     }
 
     private void doBitDetect() throws IOException {

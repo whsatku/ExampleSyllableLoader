@@ -11,9 +11,7 @@ def loader(fp):
 			id = struct.unpack('<I', fp.read(4))[0]
 		except struct.error:
 			return
-		fp.seek(1, SEEK_CUR)
-		hasTailSpace = (fp.read(1)[0] & 1<<3) >> 3 == 1
-		fp.seek(2+4, SEEK_CUR)
+		fp.seek(4+4, SEEK_CUR)
 
 		if is64 == None:
 			fp.seek(8, SEEK_CUR)
@@ -27,16 +25,13 @@ def loader(fp):
 		elif is64 == False:
 			fp.seek(4, SEEK_CUR)
 
-		if hasTailSpace:
-			data = fp.read(1023).decode('tis620')
-		else:
-			buffer = bytearray()
-			while True:
-				i = fp.read(1)[0]
-				if i == 0:
-					break
-				buffer.append(i)
-			data = buffer.decode('tis620')
+		buffer = bytearray()
+		while True:
+			i = fp.read(1)[0]
+			if i == 0:
+				break
+			buffer.append(i)
+		data = buffer.decode('tis620')
 
 		yield [id, data]
 
